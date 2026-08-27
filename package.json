@@ -1,0 +1,31 @@
+{
+  "name": "unified-playground-selenium-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Selenium WebDriver E2E test suite for the Unified Playground frontend",
+  "scripts": {
+    "test": "cross-env HEADLESS=false mocha --config .mocharc.json",
+    "test:auth": "mocha --config .mocharc.json \"src/tests/auth/**/*.test.ts\"",
+    "test:app": "mocha --config .mocharc.json \"src/tests/app/**/*.test.ts\"",
+    "test:candidate-assessment": "cross-env RUN_CANDIDATE_ASSESSMENT_TEST=true HEADLESS=false mocha --config .mocharc.json --grep \"White-collar flow\"",
+    "test:delete": "cross-env RUN_DELETE_ACCOUNT_TEST=true HEADLESS=false mocha --config .mocharc.json --grep \"Delete account\""
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.12.0",
+    "selenium-webdriver": "^4.27.0"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.10.2",
+    "@types/selenium-webdriver": "^4.1.28",
+    "chai": "^4.5.0",
+    "@types/chai": "^4.3.20",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.4.7",
+    "mocha": "^10.8.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
