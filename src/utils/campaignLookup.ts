@@ -1,4 +1,4 @@
-import { MongoClient } from "mongodb";
+import { Db, MongoClient } from "mongodb";
 import { env } from "../config/env";
 import { asReadOnly } from "./db";
 
@@ -9,6 +9,27 @@ export type GeneratedQuestion = {
   correctAnswer: string;
   order: number;
 };
+
+/** Every lookup below is a one-shot read against the live Mongo cluster — connect, run, close. */
+async function withMongoDb<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+  const client = new MongoClient(env.mongoUri);
+  try {
+    await client.connect();
+    return await fn(client.db());
+  } finally {
+    await client.close();
+  }
+}
+
+/** The most recent live campaign with this name — every lookup below keys off it. */
+async function findLiveCampaign(db: Db, campaignName: string, notFoundHint = "") {
+  const campaigns = asReadOnly(db.collection("unified_campaigns"));
+  const campaign = await campaigns.findOne({ name: campaignName, mode: "live" }, { sort: { createdAt: -1 } });
+  if (!campaign) {
+    throw new Error(`No campaign found named "${campaignName}".${notFoundHint}`);
+  }
+  return campaign;
+}
 
 /**
  * The white-collar send flow (campaign.service.ts's sendCampaignService) builds
@@ -23,19 +44,8 @@ export async function getAssessmentInviteLink(
   candidateEmail: string,
   assessmentBaseUrl: string,
 ): Promise<string> {
-  const client = new MongoClient(env.mongoUri);
-  try {
-    await client.connect();
-    const db = client.db();
-
-    const campaigns = asReadOnly(db.collection("unified_campaigns"));
-    const campaign = await campaigns.findOne(
-      { name: campaignName, mode: "live" },
-      { sort: { createdAt: -1 } },
-    );
-    if (!campaign) {
-      throw new Error(`No campaign found named "${campaignName}". Confirm it was created and sent before this lookup.`);
-    }
+  return withMongoDb(async (db) => {
+    const campaign = await findLiveCampaign(db, campaignName, " Confirm it was created and sent before this lookup.");
 
     const candidate = (campaign.candidates as { email?: string; candidateId?: string }[]).find(
       (c) => c.email?.toLowerCase() === candidateEmail.toLowerCase(),
@@ -58,9 +68,7 @@ export async function getAssessmentInviteLink(
     url.searchParams.set("keyId", apiKey.apiKey as string);
     url.searchParams.set("candidateId", candidate.candidateId);
     return url.toString();
-  } finally {
-    await client.close();
-  }
+  });
 }
 
 /**
@@ -70,19 +78,8 @@ export async function getAssessmentInviteLink(
  * these line up with what actually renders on /start, in the same order.
  */
 export async function getGeneratedQuestions(campaignName: string): Promise<GeneratedQuestion[]> {
-  const client = new MongoClient(env.mongoUri);
-  try {
-    await client.connect();
-    const db = client.db();
-
-    const campaigns = asReadOnly(db.collection("unified_campaigns"));
-    const campaign = await campaigns.findOne(
-      { name: campaignName, mode: "live" },
-      { sort: { createdAt: -1 } },
-    );
-    if (!campaign) {
-      throw new Error(`No campaign found named "${campaignName}".`);
-    }
+  return withMongoDb(async (db) => {
+    const campaign = await findLiveCampaign(db, campaignName);
 
     const questions = (campaign.questions ?? []) as GeneratedQuestion[];
     if (questions.length === 0) {
@@ -90,30 +87,15 @@ export async function getGeneratedQuestions(campaignName: string): Promise<Gener
     }
 
     return [...questions].sort((a, b) => a.order - b.order);
-  } finally {
-    await client.close();
-  }
+  });
 }
 
 /** The campaignId for a given campaign name — needed to navigate to /campaigns/{campaignId} in the UI. */
 export async function getCampaignId(campaignName: string): Promise<string> {
-  const client = new MongoClient(env.mongoUri);
-  try {
-    await client.connect();
-    const db = client.db();
-
-    const campaigns = asReadOnly(db.collection("unified_campaigns"));
-    const campaign = await campaigns.findOne(
-      { name: campaignName, mode: "live" },
-      { sort: { createdAt: -1 } },
-    );
-    if (!campaign) {
-      throw new Error(`No campaign found named "${campaignName}".`);
-    }
+  return withMongoDb(async (db) => {
+    const campaign = await findLiveCampaign(db, campaignName);
     return campaign.campaignId as string;
-  } finally {
-    await client.close();
-  }
+  });
 }
 
 /**
@@ -129,19 +111,8 @@ export async function waitForCandidatePassed(
   candidateEmail: string,
   timeoutMs = 60_000,
 ): Promise<boolean> {
-  const client = new MongoClient(env.mongoUri);
-  try {
-    await client.connect();
-    const db = client.db();
-
-    const campaigns = asReadOnly(db.collection("unified_campaigns"));
-    const campaign = await campaigns.findOne(
-      { name: campaignName, mode: "live" },
-      { sort: { createdAt: -1 } },
-    );
-    if (!campaign) {
-      throw new Error(`No campaign found named "${campaignName}".`);
-    }
+  return withMongoDb(async (db) => {
+    const campaign = await findLiveCampaign(db, campaignName);
 
     const sessions = asReadOnly(db.collection("candidatesessions"));
     const deadline = Date.now() + timeoutMs;
@@ -158,7 +129,5 @@ export async function waitForCandidatePassed(
     throw new Error(
       `candidatesessions.passed was never set for ${candidateEmail} on campaign "${campaignName}" — did the candidate actually submit?`,
     );
-  } finally {
-    await client.close();
-  }
+  });
 }

@@ -8,6 +8,22 @@ const BEGIN_ASSESSMENT_BUTTON = By.xpath('//button[contains(normalize-space(.),"
 const NEXT_QUESTION_BUTTON = By.xpath('//button[normalize-space(.)="Next Question"]');
 const SUBMIT_ASSESSMENT_BUTTON = By.xpath('//button[contains(normalize-space(.),"Submit Assessment")]');
 const CONFIRM_SUBMIT_BUTTON = By.xpath('//button[contains(normalize-space(.),"Confirm & Submit")]');
+const SUBMIT_DIALOG_HEADING = By.xpath('//*[contains(normalize-space(.),"Submit Assessment?")]');
+// The exam page always has chrome buttons (header "Submit Assessment", footer
+// "Next Question", etc.) visible alongside the current question's answer
+// options, and querying `button` picks up all of them indiscriminately. None of
+// these texts are legitimate answer-option text, so any button whose text
+// contains one of these is chrome to skip, not an option to click.
+const NON_OPTION_BUTTON_TEXTS = [
+  "Submit Assessment",
+  "Confirm & Submit",
+  "Cancel",
+  "Next Question",
+  "Share My Screen",
+  "Enable Camera",
+  "Begin Assessment",
+  "Reconnect Camera",
+];
 const ANSWER_TEXTAREA = By.css("textarea");
 const RECONNECT_CAMERA_BUTTON = By.xpath('//button[contains(normalize-space(.),"Reconnect Camera")]');
 // The only text-base/font-bold <p> on the exam page is the current question's
@@ -73,6 +89,23 @@ export class AssessmentStartPage extends BasePage {
     );
   }
 
+  /**
+   * The app can pop its own "Submit Assessment?" confirm dialog mid-exam without
+   * this test ever clicking Submit — most likely a proctoring violation (e.g. the
+   * browser losing tab/window focus) auto-triggering it. Left undetected, the
+   * next scripted click just fails with a confusing ElementClickIntercepted
+   * against the dialog's backdrop, so check for it explicitly and fail with a
+   * clear cause instead.
+   */
+  private async throwIfAutoSubmitted(): Promise<void> {
+    if (!(await this.isPresent(SUBMIT_DIALOG_HEADING, 300))) return;
+    throw new Error(
+      'The "Submit Assessment?" dialog appeared on its own mid-exam, before this test clicked Submit — most ' +
+        "likely a proctoring violation (e.g. the browser losing tab/window focus) auto-triggered it. Check the " +
+        "app's proctoring/violation logs for this session.",
+    );
+  }
+
   /** Matches by content, not array position — the exam session isn't guaranteed to render questions in the same order they're stored in. */
   private findQuestionByText(questions: GeneratedQuestion[], displayedText: string): GeneratedQuestion {
     const normalized = normalizeText(displayedText);
@@ -95,9 +128,13 @@ export class AssessmentStartPage extends BasePage {
    */
   private async answerCurrentQuestion(question: GeneratedQuestion, wantCorrect: boolean): Promise<void> {
     if (question.type === "short-answer" || question.type === "long-answer") {
-      const text = wantCorrect
-        ? question.correctAnswer
-        : "This answer is deliberately wrong — submitted by an automated end-to-end test covering the Reject verdict.";
+      // Backend grading appears to award full marks for ANY non-empty free-text
+      // answer regardless of content (confirmed 2026-08-28 — a wrong-but-non-empty
+      // placeholder scored full marks and flipped the Reject candidate's verdict
+      // to "Hire"). Leaving the field empty is an experiment to see whether an
+      // unanswered field is what actually scores 0 — see the white-collar-test-flow
+      // skill's "Known gotchas" for the underlying backend bug this works around.
+      const text = wantCorrect ? question.correctAnswer : "";
       await this.type(ANSWER_TEXTAREA, text);
       return;
     }
@@ -110,6 +147,7 @@ export class AssessmentStartPage extends BasePage {
       if (!(await button.isDisplayed())) continue;
       const text = await button.getText();
       if (!text.trim()) continue;
+      if (NON_OPTION_BUTTON_TEXTS.some((chrome) => text.includes(chrome))) continue;
       optionTexts.push(text);
       const isCorrectOption = normalizeText(text) === target;
       if (isCorrectOption === wantCorrect) {
@@ -130,10 +168,12 @@ export class AssessmentStartPage extends BasePage {
   ): Promise<void> {
     for (let i = 0; i < maxQuestions; i++) {
       await this.resumeIfPaused();
+      await this.throwIfAutoSubmitted();
       const displayedText = await this.getCurrentQuestionText();
       const question = this.findQuestionByText(questions, displayedText);
       await this.answerCurrentQuestion(question, correct);
       await this.resumeIfPaused();
+      await this.throwIfAutoSubmitted();
       if (await this.isOnLastQuestion()) break;
       await this.click(NEXT_QUESTION_BUTTON);
     }

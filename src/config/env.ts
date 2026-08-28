@@ -40,4 +40,10 @@ export const env = {
   testUserPasswordDelete: required("TEST_USER_PASSWORD_DELET"),
   /** Opt-in — leaving/deleting an org is destructive and irreversible, so this never runs as part of a plain `npm test`. */
   runDeleteAccountTest: (process.env.RUN_DELETE_ACCOUNT_TEST ?? "false") === "true",
+  /** Optional — an existing recruiter-led white-collar workflow's id. When set,
+   *  the white-collar specs reuse it (skipping the whole create-workflow wizard)
+   *  instead of deploying a brand-new workflow on every single run. See
+   *  src/utils/ensureWorkflow.ts. Left unset, a fresh one is created and its id
+   *  is printed so it can be pasted in here for future runs. */
+  testWorkflowId: process.env.TEST_WORKFLOW_ID?.trim() || undefined,
 };

@@ -1,4 +1,6 @@
+import * as fs from "fs";
 import jwt from "jsonwebtoken";
+import * as path from "path";
 import { until, WebDriver } from "selenium-webdriver";
 import { env } from "../config/env";
 import { LoginPage } from "../pages/LoginPage";
@@ -17,6 +19,14 @@ type CachedSession = { accessToken: string; userJson: string | null };
 // instead of each triggering its own POST /login (and its DB round trips).
 let cachedSessionPromise: Promise<CachedSession> | null = null;
 
+// Also persisted to disk — the in-memory cache only survives one Node process,
+// but `npm run test:*` scripts are frequently invoked as separate processes
+// (e.g. rerunning test:candidate-assessment repeatedly while iterating). The
+// access token is valid for JWT_ACCESS_EXPIRES_IN (1d in the backend's .env),
+// so reusing it across separate runs on the same day skips the real login
+// entirely instead of paying for it every single invocation.
+const CACHE_FILE = path.join(__dirname, "..", "..", ".cache", "shared-session.json");
+
 function isStillValid(accessToken: string): boolean {
   try {
     const payload = jwt.verify(accessToken, env.jwtAccessSecret) as jwt.JwtPayload;
@@ -24,6 +34,23 @@ function isStillValid(accessToken: string): boolean {
     return typeof payload.exp === "number" && payload.exp * 1000 > Date.now() + 30_000;
   } catch {
     return false;
+  }
+}
+
+function readCachedSessionFromDisk(): CachedSession | null {
+  try {
+    return JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as CachedSession;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSessionToDisk(session: CachedSession): void {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(session), "utf-8");
+  } catch {
+    // Best-effort — an unwritable cache dir just means no cross-process reuse this run.
   }
 }
 
@@ -57,7 +84,17 @@ async function getSharedSession(driver: WebDriver): Promise<CachedSession> {
     if (isStillValid(cached.accessToken)) return cached;
     cachedSessionPromise = null;
   }
-  cachedSessionPromise = establishSharedSession(driver);
+
+  const onDisk = readCachedSessionFromDisk();
+  if (onDisk && isStillValid(onDisk.accessToken)) {
+    cachedSessionPromise = Promise.resolve(onDisk);
+    return onDisk;
+  }
+
+  cachedSessionPromise = establishSharedSession(driver).then((session) => {
+    writeCachedSessionToDisk(session);
+    return session;
+  });
   return cachedSessionPromise;
 }
 

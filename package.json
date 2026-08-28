@@ -4,11 +4,11 @@
   "private": true,
   "description": "Selenium WebDriver E2E test suite for the Unified Playground frontend",
   "scripts": {
-    "test": "cross-env HEADLESS=false mocha --config .mocharc.json",
-    "test:auth": "mocha --config .mocharc.json \"src/tests/auth/**/*.test.ts\"",
-    "test:app": "mocha --config .mocharc.json \"src/tests/app/**/*.test.ts\"",
-    "test:candidate-assessment": "cross-env RUN_CANDIDATE_ASSESSMENT_TEST=true HEADLESS=false mocha --config .mocharc.json --grep \"White-collar flow\"",
-    "test:delete": "cross-env RUN_DELETE_ACCOUNT_TEST=true HEADLESS=false mocha --config .mocharc.json --grep \"Delete account\""
+    "test": "cross-env HEADLESS=false mocha --config .mocharc.json --spec \"src/tests/**/*.test.ts\"",
+    "test:auth": "mocha --config .mocharc.json --spec \"src/tests/auth/**/*.test.ts\"",
+    "test:app": "mocha --config .mocharc.json --spec \"src/tests/app/**/*.test.ts\"",
+    "test:candidate-assessment": "cross-env RUN_CANDIDATE_ASSESSMENT_TEST=true HEADLESS=false mocha --config .mocharc.json --spec \"src/tests/app/whiteCollarFlow.test.ts\"",
+    "test:delete": "cross-env RUN_DELETE_ACCOUNT_TEST=true HEADLESS=false mocha --config .mocharc.json --spec \"src/tests/auth/deleteAccount.test.ts\""
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.2",
